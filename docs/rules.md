@@ -25,6 +25,12 @@ For one-time codes, match the sender or subject, choose **After it's read**, ent
 
 Rules are checked during mailbox sync, so actions can occur later than their deadline while the app is closed, offline, or waiting for its next sync. Event clocks survive restarts and envelope refreshes. Conditions and account scope are checked when the rule is due. Arrival and read rules only consider events that happen after the rule is created, re-enabled, has its account scope expanded, or has its trigger or delay changed. Expanding account scope starts a fresh event window for all accounts covered by that rule. Each delayed rule runs once per cached message. Nonmatches are cached until the conditions, event, or message state change. Read state, star, tag, attachment, and header changes invalidate cached checks so the next sync evaluates them again. Sent, Drafts, Trash, and Junk are excluded; mail you send has [rules of its own](#rules-for-mail-you-send).
 
+## Notifications
+
+A **Right away** rule with **Don't notify** lets matching mail arrive without a new-mail notification; it still syncs and shows in the list. Mail a rule marks read or moves away doesn't notify either. Only **Right away** rules can silence: a delayed one runs after the notification is out. A rule that checks the body silences only mail whose body is in by the time the sync is done; the rest still notifies.
+
+On mobile, a conversation's menu has **Don't notify about this sender**, which adds such a rule for the sender's address with no other conditions or actions, and **Notify about this sender** removes it again. It is listed in Settings → Rules like any other rule.
+
 ## Rules for mail you send
 
 Set **Run on** to **Mail I send** to act on your own mail instead of mail that arrives. The rule runs when a message you sent shows up in the account's Sent folder, whether you sent it from Meron or from another client. Use it to tag everything you send to a client, or to copy what you send to a project folder.

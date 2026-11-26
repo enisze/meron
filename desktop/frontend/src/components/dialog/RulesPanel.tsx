@@ -76,6 +76,7 @@ type Draft = {
   forward_to: string
   disabled: boolean
   sent: boolean
+  silence?: boolean
 }
 
 /** The draft's delay in seconds, or null while the amount isn't a usable one. */
@@ -335,6 +336,8 @@ export function RulesPanel() {
         ...actions,
         trigger: timing === 'now' ? 'arrival' : timing,
         delay_seconds: delay,
+        // Set on mobile; it can't outlive a change to when the rule runs, or the core refuses it.
+        silence: !!actions.silence && timing === 'now' && !actions.sent,
         id: editing ?? '',
         // A row left blank is no condition at all.
         conditions: conditions.filter(conditionSet).map(({ key: _, ...condition }) => condition),
@@ -418,6 +421,7 @@ export function RulesPanel() {
       rule.sent && t('rules.sentMail'),
       timingSummary(rule),
       rule.tags.length > 0 && t('rules.summaryTags', { tags: rule.tags.join(', ') }),
+      rule.silence && t('rules.silence'),
       rule.mark_read && t('notification.actionMarkRead'),
       rule.star && t('chat.star'),
       rule.copy_folder && t('rules.summaryCopy', { folder: copyLabel(rule) }),

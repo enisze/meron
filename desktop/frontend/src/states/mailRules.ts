@@ -7,10 +7,21 @@ export type RuleMove = '' | 'archive' | 'trash' | 'folder'
 /**
  * From, To and Subject take comma-separated alternatives; the last three take no
  * value. Body and Subject or body wait for the message to be downloaded. Words is
- * search text, where a rule from before rows keeps what no row could say.
+ * search text, where a rule from before rows keeps what no row could say. Sender
+ * is one whole address, from mobile's per-sender notification switch.
  */
 export type RuleField =
-  'from' | 'to' | 'subject' | 'body' | 'subject_or_body' | 'words' | 'tag' | 'attachment' | 'unread' | 'starred'
+  | 'from'
+  | 'sender'
+  | 'to'
+  | 'subject'
+  | 'body'
+  | 'subject_or_body'
+  | 'words'
+  | 'tag'
+  | 'attachment'
+  | 'unread'
+  | 'starred'
 
 /** The fields a new row may take: Words only ever comes from an older rule. */
 export const RULE_FIELDS: RuleField[] = [
@@ -62,6 +73,8 @@ export type Rule = {
   disabled: boolean
   /** Runs on mail the user sent, as it shows up in Sent, instead of on mail that arrives. */
   sent?: boolean
+  /** Matching mail arrives without a notification; only for a rule acting right away on received mail. */
+  silence?: boolean
 }
 
 export type RuleLogEntry = {

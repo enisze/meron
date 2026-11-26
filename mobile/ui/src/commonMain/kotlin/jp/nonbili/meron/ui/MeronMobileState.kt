@@ -222,6 +222,9 @@ internal class MeronMobileState(
     var threadRefreshGeneration = 0L
     var threadRefreshApplied = 0L
     var conversationHtmlOverrides by mutableStateOf(emptyMap<String, Boolean>())
+
+    /** Senders a conversation's menu turned notifications off for; null until the rules are read. */
+    var silencedSenders by mutableStateOf<Set<String>?>(null)
     var previousTopScreen by mutableStateOf(Screen.Mail)
     var composeReturnScreen by mutableStateOf(Screen.Mail)
 

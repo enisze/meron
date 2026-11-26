@@ -703,15 +703,12 @@ pub fn apply(
     }
 
     for (key, value) in &data.settings {
-        if key == "rules" {
-            // Restored event rules start at import, just as rules created in
-            // settings do; they must not act on this device's older events.
-            store::set_rules(&tx, serde_json::from_value(value.clone())?)?;
-        } else {
+        if !store::is_rules_key(key) {
             store::setting_set(&tx, key, value)?;
         }
         summary.settings += 1;
     }
+    store::restore_rules(&tx, &data.settings)?;
 
     for (index, list) in data.task_lists.iter().enumerate() {
         summary.tasks += restore_task_list(&tx, list, index, now)?;

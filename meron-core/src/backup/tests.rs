@@ -1024,6 +1024,42 @@ fn restored_read_rules_do_not_replay_events_from_before_import() {
 }
 
 #[test]
+fn rules_that_only_silence_come_back_with_the_rest() {
+    let source = test_conn();
+    let rules = vec![
+        store::Rule {
+            id: "star".into(),
+            star: true,
+            ..Default::default()
+        },
+        store::Rule {
+            id: "quiet".into(),
+            conditions: vec![store::RuleCondition {
+                field: "sender".into(),
+                value: "news@shop.example".into(),
+                negate: false,
+            }],
+            silence: true,
+            ..Default::default()
+        },
+    ];
+    store::set_rules(&source, rules.clone()).unwrap();
+    let data = parse(
+        &export(&source, false, None, Host::default(), &no_secrets).unwrap(),
+        None,
+    )
+    .unwrap();
+    let target = test_conn();
+    apply(&target, &data, &SecretSink::default().saver()).unwrap();
+    let ids: Vec<String> = store::rules(&target)
+        .unwrap()
+        .into_iter()
+        .map(|rule| rule.id)
+        .collect();
+    assert_eq!(ids, ["star", "quiet"]);
+}
+
+#[test]
 fn an_unsent_floating_series_keeps_its_wall_times_in_a_backup() {
     let conn = test_conn();
     // Monday 00:30 wherever the reader is, changed here and not yet sent.

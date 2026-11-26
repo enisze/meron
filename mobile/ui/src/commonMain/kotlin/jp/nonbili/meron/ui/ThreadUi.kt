@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.Search
@@ -99,7 +101,6 @@ import jp.nonbili.meron.shared.attachmentMediaRef
 import jp.nonbili.meron.shared.buildThreadGalleryImages
 import jp.nonbili.meron.shared.buildThreadMediaItems
 import jp.nonbili.meron.shared.folderIsDrafts
-import jp.nonbili.meron.shared.normalizeSenderAddr
 import jp.nonbili.meron.shared.threadIdIsRss
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -130,6 +131,9 @@ internal fun ThreadScreen(
     onBack: () -> Unit,
     onArchive: () -> Unit,
     onMarkAsSpam: (() -> Unit)? = null,
+    /** Whether new mail from the conversation's sender notifies; null where there is no sender to ask about. */
+    senderNotifies: Boolean? = null,
+    onToggleSenderNotifies: () -> Unit = {},
     /** Names the feed in the list; null where the thread is not a feed. */
     onRenameFeed: ((String) -> Unit)? = null,
     /** A feed's article opened on its own (a starred one), not the feed's page. */
@@ -877,7 +881,7 @@ internal fun ThreadScreen(
             if (isRss || folderIsDrafts(message.folderId)) {
                 ""
             } else {
-                normalizeSenderAddr(message.fromAddr.ifBlank { message.from }).takeIf { '@' in it }.orEmpty()
+                message.senderAddress()
             }
         return MessageRemoteContent(
             allowRemote = remoteAllowed(message),
@@ -1037,6 +1041,21 @@ internal fun ThreadScreen(
                                         }
                                         if (inMenu(ConversationToolbarAction.Spam)) {
                                             MarkAsSpamMenuItem { menuAction(ConversationToolbarAction.Spam) }
+                                        }
+                                        senderNotifies?.let { notifies ->
+                                            DropdownMenuItem(
+                                                text = { Text(tr(if (notifies) "chat.actions.silenceSender" else "chat.actions.notifySender")) },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        if (notifies) Icons.Filled.NotificationsOff else Icons.Filled.Notifications,
+                                                        contentDescription = null,
+                                                    )
+                                                },
+                                                onClick = {
+                                                    overflowOpen = false
+                                                    onToggleSenderNotifies()
+                                                },
+                                            )
                                         }
                                         if (isRss && onRenameFeed != null && thread != null) {
                                             DropdownMenuItem(

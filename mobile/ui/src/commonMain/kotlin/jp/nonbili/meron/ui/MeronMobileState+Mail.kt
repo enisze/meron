@@ -53,6 +53,8 @@ import jp.nonbili.meron.shared.parseTagListResponse
 import jp.nonbili.meron.shared.parseThreadActionLocationResponse
 import jp.nonbili.meron.shared.requireCoreAllOk
 import jp.nonbili.meron.shared.requireCoreOk
+import jp.nonbili.meron.shared.senderSilenceRule
+import jp.nonbili.meron.shared.silencedSenders
 import jp.nonbili.meron.shared.threadIdIsRss
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
@@ -429,6 +431,27 @@ internal suspend fun MeronMobileState.saveRules(rules: List<Rule>): List<Rule>? 
     runCatching {
         parseRulesResponse(requireCoreOk(withContext(ioDispatcher) { MobileMailCommandClient(core).setRules(rules) }))
     }.getOrNull()
+        // Every change to the rules comes through here.
+        ?.also { silencedSenders = it.silencedSenders() }
+
+/** Read once: [saveRules] keeps it current from then on. */
+internal suspend fun MeronMobileState.loadSilencedSenders() {
+    if (silencedSenders == null) loadRules()?.let { silencedSenders = it.silencedSenders() }
+}
+
+/** Turns new-mail notifications for [address] on or off, as a rule of its own. */
+internal suspend fun MeronMobileState.setSenderNotifies(
+    address: String,
+    notifies: Boolean,
+) {
+    val others = loadRules()?.filterNot { it.silencesSender(address) }
+    val saved = others?.let { saveRules(if (notifies) it else it + senderSilenceRule(address)) }
+    if (saved == null) {
+        status = trs("chat.senderNotifiesFailed")
+        return
+    }
+    status = trs(if (notifies) "chat.senderNotifiesOn" else "chat.senderNotifiesOff", mapOf("address" to address))
+}
 
 internal suspend fun MeronMobileState.ruleMatches(id: String): RuleMatches? =
     runCatching {

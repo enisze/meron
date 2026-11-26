@@ -10,6 +10,9 @@ use crate::search_query::{SearchFields, SearchQuery};
 
 const RULES_KEY: &str = "rules";
 
+/// Rules whose only action is not to notify: see [`write_rules`].
+const SILENT_RULES_KEY: &str = "rules_silent";
+
 /// Tries a queued action gets before it is given up on, so a folder deleted
 /// since the rule ran can't fail on every sync forever.
 const MAX_RULE_ACTION_ATTEMPTS: i64 = 5;
@@ -81,6 +84,11 @@ pub struct Rule {
     /// the copy where it is: it can tag, star and copy it, but not forward it.
     #[serde(default)]
     pub sent: bool,
+    /// Matching mail arrives without a new-mail notification. Only for a rule
+    /// acting right away on received mail: by the time a delayed one runs,
+    /// the notification has already gone out.
+    #[serde(default)]
+    pub silence: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -99,7 +107,9 @@ pub struct RuleCondition {
     /// which matches; `body` and `subject_or_body` one piece of text, which
     /// waits for the body to be downloaded; `words` is search text, what a
     /// rule from before conditions couldn't say as rows; `tag` one tag;
-    /// `attachment`, `unread` and `starred` take no value.
+    /// `sender` one address, the whole of the sender's and nothing more, where
+    /// `from` would also take any address it is part of; `attachment`,
+    /// `unread` and `starred` take no value.
     pub field: String,
     #[serde(default)]
     pub value: String,
@@ -132,7 +142,9 @@ impl RuleCondition {
         let mut fields = SearchFields::default();
         let value = self.value.clone();
         match self.field.as_str() {
-            "from" => fields.from = value,
+            // A search can't say "this address exactly": `sender` is matched
+            // on its own, and this is what an older release runs for it.
+            "from" | "sender" => fields.from = value,
             "to" => fields.to = value,
             "subject" => fields.subject = value,
             "words" => fields.words = value,
@@ -150,6 +162,13 @@ impl RuleCondition {
         self.value = self.value.trim().to_string();
         match self.field.as_str() {
             "from" | "to" | "subject" | "words" => {}
+            "sender" => {
+                self.value = super::normalize_sender(&self.value);
+                anyhow::ensure!(
+                    self.value.contains('@') && !self.value.contains(','),
+                    "a rule's sender condition needs one address"
+                );
+            }
             "body" | "subject_or_body" => {
                 anyhow::ensure!(!self.value.is_empty(), "a rule's body condition needs text");
                 return Ok(self);
@@ -322,7 +341,8 @@ impl Rule {
         serde_json::json!([self.match_any, self.conditions]).to_string()
     }
 
-    fn has_action(&self) -> bool {
+    /// Whether this does anything to the mail itself, not only to its notification.
+    fn acts_on_mail(&self) -> bool {
         !self.tags.is_empty()
             || self.mark_read
             || self.star
@@ -330,15 +350,61 @@ impl Rule {
             || !self.copy_folder.is_empty()
             || !self.forward_to.is_empty()
     }
+
+    fn has_action(&self) -> bool {
+        self.acts_on_mail() || self.silence
+    }
 }
 
 pub fn rules(conn: &Connection) -> Result<Vec<Rule>> {
-    let stored = super::settings_get(conn, &[RULES_KEY.to_string()])?;
-    let rules: Vec<Rule> = stored
-        .get(RULES_KEY)
-        .and_then(|rules| serde_json::from_value(rules.clone()).ok())
-        .unwrap_or_default();
-    Ok(rules.into_iter().map(Rule::upgrade).collect())
+    let keys = [RULES_KEY.to_string(), SILENT_RULES_KEY.to_string()];
+    let stored = super::settings_get(conn, &keys)?;
+    let read = |key: &str| -> Vec<Rule> {
+        stored
+            .get(key)
+            .and_then(|rules| serde_json::from_value(rules.clone()).ok())
+            .unwrap_or_default()
+    };
+    Ok(read(RULES_KEY)
+        .into_iter()
+        .chain(read(SILENT_RULES_KEY))
+        .map(Rule::upgrade)
+        .collect())
+}
+
+/// Keep `rules`: those that only silence apart, where a release from before
+/// they existed doesn't look. It would find no action in them, and refuse
+/// every rule along with them, a restored backup's included.
+fn write_rules(conn: &Connection, rules: &[Rule]) -> Result<()> {
+    let (silent, rest): (Vec<Rule>, Vec<Rule>) =
+        rules.iter().cloned().partition(|rule| !rule.acts_on_mail());
+    super::setting_set(conn, RULES_KEY, &stored_rules(&rest))?;
+    super::setting_set(conn, SILENT_RULES_KEY, &serde_json::json!(silent))
+}
+
+/// Whether `key` is a setting the store keeps rules in: a backup restores
+/// those through [`restore_rules`], not as they are.
+pub fn is_rules_key(key: &str) -> bool {
+    key == RULES_KEY || key == SILENT_RULES_KEY
+}
+
+/// Restore the rules a backup's `settings` hold, under every key there is
+/// for them. Through [`set_rules`], so they start at import as rules created
+/// here do, rather than act on this device's older events.
+pub fn restore_rules(
+    conn: &Connection,
+    settings: &serde_json::Map<String, serde_json::Value>,
+) -> Result<()> {
+    let mut restored = Vec::new();
+    for key in [RULES_KEY, SILENT_RULES_KEY] {
+        if let Some(rules) = settings.get(key) {
+            restored.extend(serde_json::from_value::<Vec<Rule>>(rules.clone())?);
+        }
+    }
+    if settings.keys().any(|key| is_rules_key(key)) {
+        set_rules(conn, restored)?;
+    }
+    Ok(())
 }
 
 /// `rules` as the store keeps them: each with the search an older release
@@ -355,6 +421,28 @@ fn stored_rules(rules: &[Rule]) -> serde_json::Value {
             })
             .collect(),
     )
+}
+
+/// Which of `uids` in `folder` were sent from `address`, a lowercased one.
+fn sender_matching_uids(
+    conn: &Connection,
+    account: &str,
+    folder: &str,
+    address: &str,
+    uids: &[u32],
+) -> Result<Vec<u32>> {
+    let list = uids
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut stmt = conn.prepare(&format!(
+        "SELECT uid FROM messages
+         WHERE account = ?1 AND folder = ?2 AND lower(from_addr) = ?3 AND uid IN ({list})"
+    ))?;
+    Ok(stmt
+        .query_map(params![account, folder, address], |row| row.get(0))?
+        .collect::<rusqlite::Result<_>>()?)
 }
 
 /// Which of `uids` in `folder` match `rule`'s conditions, in `uids`' order.
@@ -409,6 +497,8 @@ fn rule_matching_uids(
                 condition.field == "subject_or_body",
                 &open,
             )?
+        } else if condition.field == "sender" {
+            sender_matching_uids(conn, account, folder, &condition.value, &open)?
         } else {
             super::matching_uids(conn, account, folder, &condition.query(), &open)?
         }
@@ -500,6 +590,10 @@ pub fn set_rules(conn: &Connection, incoming: Vec<Rule>) -> Result<Vec<Rule>> {
             !rule.sent || !rule.reads_body(),
             "a rule for sent mail can't check the body"
         );
+        anyhow::ensure!(
+            !rule.silence || rule.on_arrival(),
+            "only a rule acting right away on received mail can silence its notification"
+        );
         anyhow::ensure!(rule.has_action(), "a rule needs an action");
         if rule.id.is_empty() {
             rule.id = uuid::Uuid::new_v4().to_string();
@@ -542,7 +636,7 @@ pub fn set_rules(conn: &Connection, incoming: Vec<Rule>) -> Result<Vec<Rule>> {
             "DELETE FROM {table} WHERE rule_id NOT IN (SELECT json_extract(value, '$.id') FROM json_each(?1))"
         ), [stored.to_string()])?;
     }
-    super::setting_set(conn, RULES_KEY, &stored)?;
+    write_rules(conn, &clean)?;
     if let Some(tx) = tx {
         tx.commit()?;
     }
@@ -723,6 +817,37 @@ pub fn apply_rules(
     Ok(())
 }
 
+/// Which of `uids`, mail that just arrived in `folder`, a rule says not to
+/// notify about. A rule reading the body matches only mail whose body is here
+/// by now: the rest still notifies.
+pub fn silenced_arrivals(
+    conn: &Connection,
+    account: &str,
+    folder: &str,
+    uids: &[u32],
+) -> Result<BTreeSet<u32>> {
+    let mut silenced = BTreeSet::new();
+    if uids.is_empty() {
+        return Ok(silenced);
+    }
+    // Rules never run on these: see [`apply_rules`].
+    let role = super::folder_role(conn, account, folder)?;
+    if matches!(role.as_str(), "sent" | "drafts" | "trash" | "junk") {
+        return Ok(silenced);
+    }
+    for rule in rules(conn)? {
+        // [`set_rules`] lets only rules acting right away silence.
+        if !rule.silence
+            || rule.disabled
+            || (!rule.accounts.is_empty() && !rule.accounts.iter().any(|id| id == account))
+        {
+            continue;
+        }
+        silenced.extend(rule_matching_uids(conn, account, folder, &rule, uids)?);
+    }
+    Ok(silenced)
+}
+
 /// Run the rules for sent mail over copies that have just shown up in
 /// `folder`, the account's Sent folder: see [`new_sent_uids`]. The caller
 /// vouches for the folder, which a provider may name anything.
@@ -801,6 +926,8 @@ fn run_immediate_rules(
             || (!sent && rule.waits_for_body(held))
             || rule.disabled
             || (!rule.accounts.is_empty() && !rule.accounts.iter().any(|item| item == account))
+            // Silencing is the sync's, in [`silenced_arrivals`]: nothing to do here.
+            || !rule.acts_on_mail()
         {
             continue;
         }
@@ -989,8 +1116,11 @@ pub fn apply_due_rules(
                  SELECT id, ?4 FROM messages WHERE account = ?1 AND folder = ?2 AND uid = ?3",
                 params![account, folder, uid, rule.id],
             )?;
-            let subject = rule_message_subject(&tx, account, folder, *uid)?;
-            log_rule(&tx, &rule.id, account, &subject, 1, None)?;
+            // One that only silences would fill the log with every mail it quiets.
+            if rule.acts_on_mail() {
+                let subject = rule_message_subject(&tx, account, folder, *uid)?;
+                log_rule(&tx, &rule.id, account, &subject, 1, None)?;
+            }
         }
         add_rule_effects(
             &tx,
@@ -1128,7 +1258,7 @@ pub fn forget_rule_account(conn: &Connection, id: &str) -> Result<()> {
             rule.disabled = true;
         }
     }
-    super::setting_set(conn, RULES_KEY, &stored_rules(&stored))?;
+    write_rules(conn, &stored)?;
     Ok(())
 }
 
@@ -1572,3 +1702,6 @@ mod timing_tests;
 
 #[cfg(test)]
 mod sent_tests;
+
+#[cfg(test)]
+mod silence_tests;

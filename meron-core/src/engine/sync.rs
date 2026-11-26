@@ -1125,6 +1125,20 @@ async fn sync_messages_with_policy(
     // Only now, with this sync's actions and what they spared from notifying
     // done: the backlog's actions go to a worker of their own.
     spawn_rule_body_backlog(&tag_engine, &tag_account, &rule_folder, synced_validity);
+    let arrived: Vec<u32> = result.arrivals.iter().map(|message| message.uid).collect();
+    match store::silenced_arrivals(
+        &tag_engine.db.lock().unwrap(),
+        &tag_account,
+        &rule_folder,
+        &arrived,
+    ) {
+        Ok(quiet) => silenced.extend(quiet),
+        Err(err) => crate::mlog!(
+            crate::log::Level::Warn,
+            "mail.rules",
+            "account={tag_account}: silencing rules skipped: {err:#}"
+        ),
+    }
     result
         .arrivals
         .retain(|message| !silenced.contains(&message.uid));

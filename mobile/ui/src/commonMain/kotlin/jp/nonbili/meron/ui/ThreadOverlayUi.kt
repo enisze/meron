@@ -49,6 +49,7 @@ internal fun OpenThreadPager(
         val threadSwipe = rememberThreadSwipeState()
         // Pages beside the open one never show a snackbar; theirs goes nowhere.
         val previewSnackbarHost = remember { SnackbarHostState() }
+        LaunchedEffect(Unit) { loadSilencedSenders() }
         val (newerThread, olderThread) = threadBrowseNeighbors()
         LaunchedEffect(newerThread?.id, newerThread?.dateEpochSeconds, olderThread?.id, olderThread?.dateEpochSeconds) {
             prefetchThreadPreviews(listOfNotNull(newerThread, olderThread))
@@ -83,6 +84,11 @@ internal fun OpenThreadPager(
                     val preview = pageThread?.let { threadPreviews[it.id]?.page }
                     val pageMessages = if (active) visibleThreadMessages() else preview?.messages.orEmpty()
                     val pageCursor = if (active) messageCursor else preview?.nextCursor.orEmpty()
+                    // Who last wrote in: never the account itself, so none until a message from someone else is here.
+                    val sender =
+                        pageThread
+                            ?.takeIf { !threadIdIsRss(it.id) }
+                            ?.let { pageMessages.filterNot { it.outgoing }.map { it.senderAddress() }.lastOrNull { it.isNotEmpty() } }
                     ThreadScreen(
                         active = active,
                         modifier = Modifier.graphicsLayer { translationX = threadSwipe.offsetPx + slot * size.width },
@@ -114,6 +120,8 @@ internal fun OpenThreadPager(
                             pageThread
                                 ?.takeIf { active && spamFolderForThread(it) != null }
                                 ?.let { thread -> { markThreadAsSpam(thread, onMoved = popAppBack) } },
+                        senderNotifies = sender?.let { address -> silencedSenders?.let { address !in it } },
+                        onToggleSenderNotifies = { sender?.let { scope.launch { setSenderNotifies(it, it in silencedSenders.orEmpty()) } } },
                         isRssArticle = pageThread?.let { threadIdIsRss(it.id) && it.rssItemKeys().isNotEmpty() } == true,
                         // A feed's own page, not one of its entries opened on its own.
                         onRenameFeed =

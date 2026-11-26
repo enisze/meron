@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
@@ -89,6 +90,9 @@ private fun conditionRow(condition: RuleCondition = RuleCondition()) = Condition
 
 /** The fields a new row may take: `words` only ever comes from an older rule. */
 private val RULE_FIELDS = listOf("from", "to", "subject", "body", "subject_or_body", "tag", "attachment", "unread", "starred")
+
+/** The fields whose value is addresses. `sender` comes only from a conversation's notification switch. */
+private val ADDRESS_FIELDS = setOf("from", "to", "sender")
 
 /** Whether a condition says anything: one left blank is dropped on save. */
 private fun RuleCondition.isSet(): Boolean = !valued || value.isNotBlank()
@@ -189,6 +193,7 @@ private fun MeronMobileState.ruleSummary(
             tr("rules.summary.${rule.trigger}", mapOf("duration" to tr("rules.duration.$unit", mapOf("count" to amount))))
         },
         tr("rules.summaryTags", mapOf("tags" to rule.tags.joinToString(", "))).takeIf { rule.tags.isNotEmpty() },
+        tr("rules.silence").takeIf { rule.silence },
         tr("notification.actionMarkRead").takeIf { rule.markRead },
         tr("chat.star").takeIf { rule.star },
         tr("rules.summaryCopy", mapOf("folder" to targetLabel(accounts, rule.copyAccount, rule.copyFolder)))
@@ -295,7 +300,7 @@ private fun MeronMobileState.RuleTargetRow(
 @Composable
 private fun ruleFieldLabel(field: String): String =
     when (field) {
-        "from" -> tr("composer.fields.from")
+        "from", "sender" -> tr("composer.fields.from")
         "to" -> tr("composer.fields.to")
         "subject" -> tr("composer.fields.subject")
         "body" -> tr("rules.field.body")
@@ -450,7 +455,7 @@ private fun MeronMobileState.RuleConditionsEditor(
                             fun kind(of: String) =
                                 when {
                                     !RuleCondition(field = of).valued -> ""
-                                    of == "from" || of == "to" -> "address"
+                                    of in ADDRESS_FIELDS -> "address"
                                     of == "tag" -> "tag"
                                     else -> "text"
                                 }
@@ -506,7 +511,7 @@ private fun MeronMobileState.RuleConditionsEditor(
                                     description = label,
                                     options = shown.map { tag -> tag to { update(row.key, condition.copy(value = tag)) } },
                                 )
-                            } else if (condition.field == "from" || condition.field == "to") {
+                            } else if (condition.field in ADDRESS_FIELDS) {
                                 SearchOptionsAddressField(this@RuleConditionsEditor, "", label, condition.value, {}) {
                                     update(row.key, condition.copy(value = it))
                                 }
@@ -949,7 +954,7 @@ internal fun MeronMobileState.RulesPage(
                                             Spacer(Modifier.width(4.dp))
                                             Text(tr("rules.stop"))
                                         }
-                                    } else {
+                                    } else if (rule.actsOnMail) {
                                         TextButton(
                                             enabled = !saving && !rule.disabled,
                                             onClick = {
@@ -1337,6 +1342,24 @@ internal fun MeronMobileState.RulesPage(
                 }
             }
 
+            // A delayed rule runs after the notification is out: nothing left to silence.
+            if (!draft.sent && timing == "now") {
+                Spacer(Modifier.height(16.dp))
+                Surface(
+                    shape = connectedShape(ConnectedPosition.Single),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 1.dp,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    SettingsToggleRow(
+                        icon = Icons.Filled.NotificationsOff,
+                        title = tr("rules.silence"),
+                        checked = draft.silence,
+                        onToggle = { change(draft.copy(silence = !draft.silence)) },
+                    )
+                }
+            }
+
             if (!draft.sent && draft.forwardTo.isNotBlank()) {
                 Text(
                     tr("rules.forwardHint"),
@@ -1381,6 +1404,8 @@ internal fun MeronMobileState.RulesPage(
                             draft.copy(
                                 trigger = if (timing == "now") "arrival" else timing,
                                 delaySeconds = delay ?: return@Button,
+                                // Hidden, not cleared, while the rule couldn't silence: it is only dropped here.
+                                silence = draft.silence && timing == "now" && !draft.sent,
                             )
                         // A row left blank is no condition at all.
                         val conditions = conditionRows.map { it.condition }.filter { it.isSet() }
