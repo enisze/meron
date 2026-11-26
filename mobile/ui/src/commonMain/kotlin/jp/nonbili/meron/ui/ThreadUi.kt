@@ -101,7 +101,6 @@ import jp.nonbili.meron.shared.attachmentMediaRef
 import jp.nonbili.meron.shared.buildThreadGalleryImages
 import jp.nonbili.meron.shared.buildThreadMediaItems
 import jp.nonbili.meron.shared.folderIsDrafts
-import jp.nonbili.meron.shared.normalizeSenderAddr
 import jp.nonbili.meron.shared.threadIdIsRss
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -134,7 +133,7 @@ internal fun ThreadScreen(
     onMarkAsSpam: (() -> Unit)? = null,
     /** Whether new mail from the conversation's sender notifies; null where there is no sender to ask about. */
     senderNotifies: Boolean? = null,
-    onSenderNotifiesChange: (Boolean) -> Unit = {},
+    onToggleSenderNotifies: () -> Unit = {},
     /** Names the feed in the list; null where the thread is not a feed. */
     onRenameFeed: ((String) -> Unit)? = null,
     /** A feed's article opened on its own (a starred one), not the feed's page. */
@@ -882,7 +881,7 @@ internal fun ThreadScreen(
             if (isRss || folderIsDrafts(message.folderId)) {
                 ""
             } else {
-                normalizeSenderAddr(message.fromAddr.ifBlank { message.from }).takeIf { '@' in it }.orEmpty()
+                message.senderAddress()
             }
         return MessageRemoteContent(
             allowRemote = remoteAllowed(message),
@@ -1054,7 +1053,7 @@ internal fun ThreadScreen(
                                                 },
                                                 onClick = {
                                                     overflowOpen = false
-                                                    onSenderNotifiesChange(!notifies)
+                                                    onToggleSenderNotifies()
                                                 },
                                             )
                                         }

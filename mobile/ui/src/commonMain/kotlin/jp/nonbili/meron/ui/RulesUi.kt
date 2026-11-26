@@ -91,6 +91,9 @@ private fun conditionRow(condition: RuleCondition = RuleCondition()) = Condition
 /** The fields a new row may take: `words` only ever comes from an older rule. */
 private val RULE_FIELDS = listOf("from", "to", "subject", "body", "subject_or_body", "tag", "attachment", "unread", "starred")
 
+/** The fields whose value is addresses. `sender` comes only from a conversation's notification switch. */
+private val ADDRESS_FIELDS = setOf("from", "to", "sender")
+
 /** Whether a condition says anything: one left blank is dropped on save. */
 private fun RuleCondition.isSet(): Boolean = !valued || value.isNotBlank()
 
@@ -452,7 +455,7 @@ private fun MeronMobileState.RuleConditionsEditor(
                             fun kind(of: String) =
                                 when {
                                     !RuleCondition(field = of).valued -> ""
-                                    of == "from" || of == "to" || of == "sender" -> "address"
+                                    of in ADDRESS_FIELDS -> "address"
                                     of == "tag" -> "tag"
                                     else -> "text"
                                 }
@@ -508,7 +511,7 @@ private fun MeronMobileState.RuleConditionsEditor(
                                     description = label,
                                     options = shown.map { tag -> tag to { update(row.key, condition.copy(value = tag)) } },
                                 )
-                            } else if (condition.field == "from" || condition.field == "to" || condition.field == "sender") {
+                            } else if (condition.field in ADDRESS_FIELDS) {
                                 SearchOptionsAddressField(this@RuleConditionsEditor, "", label, condition.value, {}) {
                                     update(row.key, condition.copy(value = it))
                                 }
@@ -1109,7 +1112,7 @@ internal fun MeronMobileState.RulesPage(
                             pickTiming("now")
                             conditionRows = conditionRows.filterNot { it.condition.readsBody }
                             change(
-                                draft.copy(sent = true, markRead = false, moveTo = "", folder = "", folderAccount = "", forwardTo = "", silence = false),
+                                draft.copy(sent = true, markRead = false, moveTo = "", folder = "", folderAccount = "", forwardTo = ""),
                             )
                         }
                     },
@@ -1401,7 +1404,8 @@ internal fun MeronMobileState.RulesPage(
                             draft.copy(
                                 trigger = if (timing == "now") "arrival" else timing,
                                 delaySeconds = delay ?: return@Button,
-                                silence = draft.silence && timing == "now",
+                                // Hidden, not cleared, while the rule couldn't silence: it is only dropped here.
+                                silence = draft.silence && timing == "now" && !draft.sent,
                             )
                         // A row left blank is no condition at all.
                         val conditions = conditionRows.map { it.condition }.filter { it.isSet() }

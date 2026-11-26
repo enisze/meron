@@ -11,7 +11,7 @@ use crate::search_query::{SearchFields, SearchQuery};
 const RULES_KEY: &str = "rules";
 
 /// Rules whose only action is not to notify: see [`write_rules`].
-pub const SILENT_RULES_KEY: &str = "rules_silent";
+const SILENT_RULES_KEY: &str = "rules_silent";
 
 /// Tries a queued action gets before it is given up on, so a folder deleted
 /// since the rule ran can't fail on every sync forever.
@@ -163,7 +163,7 @@ impl RuleCondition {
         match self.field.as_str() {
             "from" | "to" | "subject" | "words" => {}
             "sender" => {
-                self.value = self.value.to_lowercase();
+                self.value = super::normalize_sender(&self.value);
                 anyhow::ensure!(
                     self.value.contains('@') && !self.value.contains(','),
                     "a rule's sender condition needs one address"
@@ -380,6 +380,31 @@ fn write_rules(conn: &Connection, rules: &[Rule]) -> Result<()> {
         rules.iter().cloned().partition(|rule| !rule.acts_on_mail());
     super::setting_set(conn, RULES_KEY, &stored_rules(&rest))?;
     super::setting_set(conn, SILENT_RULES_KEY, &serde_json::json!(silent))
+}
+
+/// Whether `key` is a setting the store keeps rules in: a backup restores
+/// those through [`restore_rules`], not as they are.
+pub fn is_rules_key(key: &str) -> bool {
+    key == RULES_KEY || key == SILENT_RULES_KEY
+}
+
+/// Restore the rules a backup's `settings` hold, under every key there is
+/// for them. Through [`set_rules`], so they start at import as rules created
+/// here do, rather than act on this device's older events.
+pub fn restore_rules(
+    conn: &Connection,
+    settings: &serde_json::Map<String, serde_json::Value>,
+) -> Result<()> {
+    let mut restored = Vec::new();
+    for key in [RULES_KEY, SILENT_RULES_KEY] {
+        if let Some(rules) = settings.get(key) {
+            restored.extend(serde_json::from_value::<Vec<Rule>>(rules.clone())?);
+        }
+    }
+    if settings.keys().any(|key| is_rules_key(key)) {
+        set_rules(conn, restored)?;
+    }
+    Ok(())
 }
 
 /// `rules` as the store keeps them: each with the search an older release
@@ -811,9 +836,9 @@ pub fn silenced_arrivals(
         return Ok(silenced);
     }
     for rule in rules(conn)? {
+        // [`set_rules`] lets only rules acting right away silence.
         if !rule.silence
             || rule.disabled
-            || !rule.on_arrival()
             || (!rule.accounts.is_empty() && !rule.accounts.iter().any(|id| id == account))
         {
             continue;

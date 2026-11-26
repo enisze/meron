@@ -8,7 +8,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import jp.nonbili.meron.shared.MessageBody
 import jp.nonbili.meron.shared.ThreadSummary
+import jp.nonbili.meron.shared.normalizeSenderAddr
 import jp.nonbili.meron.shared.threadIdIsRss
+
+/** The bare address [this] came from, as the core compares senders; empty when it gives none. */
+internal fun MessageBody.senderAddress(): String = normalizeSenderAddr(fromAddr.ifBlank { from }).takeIf { '@' in it }.orEmpty()
 
 // How long after open the list keeps re-anchoring to the target message while
 // asynchronously measured bubbles (HTML bodies in WebViews) settle.

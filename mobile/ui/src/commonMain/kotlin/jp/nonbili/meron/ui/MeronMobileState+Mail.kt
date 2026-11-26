@@ -431,9 +431,12 @@ internal suspend fun MeronMobileState.saveRules(rules: List<Rule>): List<Rule>? 
     runCatching {
         parseRulesResponse(requireCoreOk(withContext(ioDispatcher) { MobileMailCommandClient(core).setRules(rules) }))
     }.getOrNull()
+        // Every change to the rules comes through here.
+        ?.also { silencedSenders = it.silencedSenders() }
 
-internal suspend fun MeronMobileState.refreshSilencedSenders() {
-    loadRules()?.let { silencedSenders = it.silencedSenders() }
+/** Read once: [saveRules] keeps it current from then on. */
+internal suspend fun MeronMobileState.loadSilencedSenders() {
+    if (silencedSenders == null) loadRules()?.let { silencedSenders = it.silencedSenders() }
 }
 
 /** Turns new-mail notifications for [address] on or off, as a rule of its own. */
@@ -447,7 +450,6 @@ internal suspend fun MeronMobileState.setSenderNotifies(
         status = trs("chat.senderNotifiesFailed")
         return
     }
-    silencedSenders = saved.silencedSenders()
     status = trs(if (notifies) "chat.senderNotifiesOn" else "chat.senderNotifiesOff", mapOf("address" to address))
 }
 
