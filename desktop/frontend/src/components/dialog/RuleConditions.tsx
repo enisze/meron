@@ -10,6 +10,7 @@ import { SegmentedRow } from './AccountSettingsRows'
 
 const FIELD_LABELS: Record<RuleField, string> = {
   from: 'composer.fields.from',
+  sender: 'composer.fields.from',
   to: 'composer.fields.to',
   subject: 'composer.fields.subject',
   body: 'rules.field.body',

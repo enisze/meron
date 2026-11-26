@@ -671,7 +671,7 @@ data class Rule(
 
 /** The rule a conversation's "Don't notify" switch adds: no notification for any new mail from [address]. */
 fun senderSilenceRule(address: String): Rule =
-    Rule(conditions = listOf(RuleCondition("from", normalizeSenderAddr(address))), silence = true)
+    Rule(conditions = listOf(RuleCondition("sender", normalizeSenderAddr(address))), silence = true)
 
 /** The senders [senderSilenceRule]s among these turn notifications off for. */
 fun List<Rule>.silencedSenders(): Set<String> =

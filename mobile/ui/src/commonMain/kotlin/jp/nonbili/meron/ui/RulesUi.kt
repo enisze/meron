@@ -297,7 +297,7 @@ private fun MeronMobileState.RuleTargetRow(
 @Composable
 private fun ruleFieldLabel(field: String): String =
     when (field) {
-        "from" -> tr("composer.fields.from")
+        "from", "sender" -> tr("composer.fields.from")
         "to" -> tr("composer.fields.to")
         "subject" -> tr("composer.fields.subject")
         "body" -> tr("rules.field.body")
@@ -452,7 +452,7 @@ private fun MeronMobileState.RuleConditionsEditor(
                             fun kind(of: String) =
                                 when {
                                     !RuleCondition(field = of).valued -> ""
-                                    of == "from" || of == "to" -> "address"
+                                    of == "from" || of == "to" || of == "sender" -> "address"
                                     of == "tag" -> "tag"
                                     else -> "text"
                                 }
@@ -508,7 +508,7 @@ private fun MeronMobileState.RuleConditionsEditor(
                                     description = label,
                                     options = shown.map { tag -> tag to { update(row.key, condition.copy(value = tag)) } },
                                 )
-                            } else if (condition.field == "from" || condition.field == "to") {
+                            } else if (condition.field == "from" || condition.field == "to" || condition.field == "sender") {
                                 SearchOptionsAddressField(this@RuleConditionsEditor, "", label, condition.value, {}) {
                                     update(row.key, condition.copy(value = it))
                                 }

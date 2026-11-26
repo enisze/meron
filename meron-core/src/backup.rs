@@ -706,7 +706,14 @@ pub fn apply(
         if key == "rules" {
             // Restored event rules start at import, just as rules created in
             // settings do; they must not act on this device's older events.
-            store::set_rules(&tx, serde_json::from_value(value.clone())?)?;
+            let mut rules: Vec<store::Rule> = serde_json::from_value(value.clone())?;
+            if let Some(silent) = data.settings.get(store::SILENT_RULES_KEY) {
+                rules.extend(serde_json::from_value::<Vec<store::Rule>>(silent.clone())?);
+            }
+            store::set_rules(&tx, rules)?;
+        } else if key == store::SILENT_RULES_KEY {
+            // Restored with "rules", which every backup with these has.
+            continue;
         } else {
             store::setting_set(&tx, key, value)?;
         }

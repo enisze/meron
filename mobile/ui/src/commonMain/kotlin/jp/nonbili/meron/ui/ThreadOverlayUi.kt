@@ -50,7 +50,8 @@ internal fun OpenThreadPager(
         val threadSwipe = rememberThreadSwipeState()
         // Pages beside the open one never show a snackbar; theirs goes nowhere.
         val previewSnackbarHost = remember { SnackbarHostState() }
-        LaunchedEffect(Unit) { refreshSilencedSenders() }
+        // Again for each conversation: the Rules page may have changed them since.
+        LaunchedEffect(selectedCoreThread?.id) { refreshSilencedSenders() }
         val (newerThread, olderThread) = threadBrowseNeighbors()
         LaunchedEffect(newerThread?.id, newerThread?.dateEpochSeconds, olderThread?.id, olderThread?.dateEpochSeconds) {
             prefetchThreadPreviews(listOfNotNull(newerThread, olderThread))
@@ -85,12 +86,12 @@ internal fun OpenThreadPager(
                     val preview = pageThread?.let { threadPreviews[it.id]?.page }
                     val pageMessages = if (active) visibleThreadMessages() else preview?.messages.orEmpty()
                     val pageCursor = if (active) messageCursor else preview?.nextCursor.orEmpty()
-                    // Who last wrote in, not the account itself.
+                    // Who last wrote in: never the account itself, so none until a message from someone else is here.
                     val sender =
                         pageThread
                             ?.takeIf { !threadIdIsRss(it.id) }
-                            ?.let { thread -> pageMessages.lastOrNull { !it.outgoing && it.fromAddr.isNotBlank() }?.fromAddr ?: thread.senderAddr }
-                            ?.let(::normalizeSenderAddr)
+                            ?.let { pageMessages.lastOrNull { !it.outgoing && it.fromAddr.isNotBlank() } }
+                            ?.let { normalizeSenderAddr(it.fromAddr) }
                             ?.takeIf { it.isNotEmpty() }
                     ThreadScreen(
                         active = active,
