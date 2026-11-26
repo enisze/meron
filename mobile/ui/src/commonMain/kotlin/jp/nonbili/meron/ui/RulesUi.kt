@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
@@ -189,6 +190,7 @@ private fun MeronMobileState.ruleSummary(
             tr("rules.summary.${rule.trigger}", mapOf("duration" to tr("rules.duration.$unit", mapOf("count" to amount))))
         },
         tr("rules.summaryTags", mapOf("tags" to rule.tags.joinToString(", "))).takeIf { rule.tags.isNotEmpty() },
+        tr("rules.silence").takeIf { rule.silence },
         tr("notification.actionMarkRead").takeIf { rule.markRead },
         tr("chat.star").takeIf { rule.star },
         tr("rules.summaryCopy", mapOf("folder" to targetLabel(accounts, rule.copyAccount, rule.copyFolder)))
@@ -949,7 +951,7 @@ internal fun MeronMobileState.RulesPage(
                                             Spacer(Modifier.width(4.dp))
                                             Text(tr("rules.stop"))
                                         }
-                                    } else {
+                                    } else if (rule.actsOnMail) {
                                         TextButton(
                                             enabled = !saving && !rule.disabled,
                                             onClick = {
@@ -1107,7 +1109,7 @@ internal fun MeronMobileState.RulesPage(
                             pickTiming("now")
                             conditionRows = conditionRows.filterNot { it.condition.readsBody }
                             change(
-                                draft.copy(sent = true, markRead = false, moveTo = "", folder = "", folderAccount = "", forwardTo = ""),
+                                draft.copy(sent = true, markRead = false, moveTo = "", folder = "", folderAccount = "", forwardTo = "", silence = false),
                             )
                         }
                     },
@@ -1337,6 +1339,24 @@ internal fun MeronMobileState.RulesPage(
                 }
             }
 
+            // A delayed rule runs after the notification is out: nothing left to silence.
+            if (!draft.sent && timing == "now") {
+                Spacer(Modifier.height(16.dp))
+                Surface(
+                    shape = connectedShape(ConnectedPosition.Single),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 1.dp,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    SettingsToggleRow(
+                        icon = Icons.Filled.NotificationsOff,
+                        title = tr("rules.silence"),
+                        checked = draft.silence,
+                        onToggle = { change(draft.copy(silence = !draft.silence)) },
+                    )
+                }
+            }
+
             if (!draft.sent && draft.forwardTo.isNotBlank()) {
                 Text(
                     tr("rules.forwardHint"),
@@ -1381,6 +1401,7 @@ internal fun MeronMobileState.RulesPage(
                             draft.copy(
                                 trigger = if (timing == "now") "arrival" else timing,
                                 delaySeconds = delay ?: return@Button,
+                                silence = draft.silence && timing == "now",
                             )
                         // A row left blank is no condition at all.
                         val conditions = conditionRows.map { it.condition }.filter { it.isSet() }

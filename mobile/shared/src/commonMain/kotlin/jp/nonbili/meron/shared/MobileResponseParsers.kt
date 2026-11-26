@@ -883,6 +883,7 @@ fun parseRulesResponse(responseJson: String): List<Rule> =
                 forwardTo = rule.findJsonStringProperty("forward_to").orEmpty(),
                 disabled = rule.findJsonBooleanProperty("disabled") ?: false,
                 sent = rule.findJsonBooleanProperty("sent") ?: false,
+                silence = rule.findJsonBooleanProperty("silence") ?: false,
             )
         }.orEmpty()
 

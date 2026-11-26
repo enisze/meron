@@ -81,6 +81,11 @@ pub struct Rule {
     /// the copy where it is: it can tag, star and copy it, but not forward it.
     #[serde(default)]
     pub sent: bool,
+    /// Matching mail arrives without a new-mail notification. Only for a rule
+    /// acting right away on received mail: by the time a delayed one runs,
+    /// the notification has already gone out.
+    #[serde(default)]
+    pub silence: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -329,6 +334,7 @@ impl Rule {
             || !self.move_to.is_empty()
             || !self.copy_folder.is_empty()
             || !self.forward_to.is_empty()
+            || self.silence
     }
 }
 
@@ -499,6 +505,10 @@ pub fn set_rules(conn: &Connection, incoming: Vec<Rule>) -> Result<Vec<Rule>> {
         anyhow::ensure!(
             !rule.sent || !rule.reads_body(),
             "a rule for sent mail can't check the body"
+        );
+        anyhow::ensure!(
+            !rule.silence || rule.on_arrival(),
+            "only a rule acting right away on received mail can silence its notification"
         );
         anyhow::ensure!(rule.has_action(), "a rule needs an action");
         if rule.id.is_empty() {
@@ -721,6 +731,32 @@ pub fn apply_rules(
     run_immediate_rules(&tx, account, folder, uidvalidity, uids, rules, false)?;
     tx.commit()?;
     Ok(())
+}
+
+/// Which of `uids`, mail that just arrived in `folder`, a rule says not to
+/// notify about. A rule reading the body matches only mail whose body is here
+/// by now: the rest still notifies.
+pub fn silenced_arrivals(
+    conn: &Connection,
+    account: &str,
+    folder: &str,
+    uids: &[u32],
+) -> Result<BTreeSet<u32>> {
+    let mut silenced = BTreeSet::new();
+    if uids.is_empty() {
+        return Ok(silenced);
+    }
+    for rule in rules(conn)? {
+        if !rule.silence
+            || rule.disabled
+            || !rule.on_arrival()
+            || (!rule.accounts.is_empty() && !rule.accounts.iter().any(|id| id == account))
+        {
+            continue;
+        }
+        silenced.extend(rule_matching_uids(conn, account, folder, &rule, uids)?);
+    }
+    Ok(silenced)
 }
 
 /// Run the rules for sent mail over copies that have just shown up in
@@ -1572,3 +1608,6 @@ mod timing_tests;
 
 #[cfg(test)]
 mod sent_tests;
+
+#[cfg(test)]
+mod silence_tests;

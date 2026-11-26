@@ -636,7 +636,16 @@ data class Rule(
     val disabled: Boolean = false,
     /** Runs on mail the user sent, as it shows up in Sent, instead of on mail that arrives. */
     val sent: Boolean = false,
+    /** Matching mail arrives without a notification. Only for a rule acting right away on received mail. */
+    val silence: Boolean = false,
 ) {
+    /** Whether this does anything to the mail itself, rather than only to its notification: what a run by hand needs. */
+    val actsOnMail: Boolean
+        get() = tags.isNotEmpty() || markRead || star || moveTo.isNotEmpty() || copyFolder.isNotEmpty() || forwardTo.isNotEmpty()
+
+    /** Whether this is the rule behind [senderSilenceRule]'s switch for [address]. */
+    fun silencesSender(address: String): Boolean = copy(id = "") == senderSilenceRule(address)
+
     fun toJson(): String =
         jsonObject(
             "id" to id.jsonString(),
@@ -656,8 +665,17 @@ data class Rule(
             "forward_to" to forwardTo.jsonString(),
             "disabled" to disabled.toString(),
             "sent" to sent.toString(),
+            "silence" to silence.toString(),
         )
 }
+
+/** The rule a conversation's "Don't notify" switch adds: no notification for any new mail from [address]. */
+fun senderSilenceRule(address: String): Rule =
+    Rule(conditions = listOf(RuleCondition("from", normalizeSenderAddr(address))), silence = true)
+
+/** The senders [senderSilenceRule]s among these turn notifications off for. */
+fun List<Rule>.silencedSenders(): Set<String> =
+    mapNotNull { rule -> rule.conditions.singleOrNull()?.value?.takeIf { rule.silencesSender(it) } }.toSet()
 
 /** One line of what rules did. [subject] is empty for a run by hand, which logs one line. */
 data class RuleLogEntry(

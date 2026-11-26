@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import jp.nonbili.meron.shared.DraftAttachment
 import jp.nonbili.meron.shared.RemoteContentPolicy
 import jp.nonbili.meron.shared.accountSummaryIsRss
+import jp.nonbili.meron.shared.normalizeSenderAddr
 import jp.nonbili.meron.shared.threadIdIsRss
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,6 +50,7 @@ internal fun OpenThreadPager(
         val threadSwipe = rememberThreadSwipeState()
         // Pages beside the open one never show a snackbar; theirs goes nowhere.
         val previewSnackbarHost = remember { SnackbarHostState() }
+        LaunchedEffect(Unit) { refreshSilencedSenders() }
         val (newerThread, olderThread) = threadBrowseNeighbors()
         LaunchedEffect(newerThread?.id, newerThread?.dateEpochSeconds, olderThread?.id, olderThread?.dateEpochSeconds) {
             prefetchThreadPreviews(listOfNotNull(newerThread, olderThread))
@@ -83,6 +85,13 @@ internal fun OpenThreadPager(
                     val preview = pageThread?.let { threadPreviews[it.id]?.page }
                     val pageMessages = if (active) visibleThreadMessages() else preview?.messages.orEmpty()
                     val pageCursor = if (active) messageCursor else preview?.nextCursor.orEmpty()
+                    // Who last wrote in, not the account itself.
+                    val sender =
+                        pageThread
+                            ?.takeIf { !threadIdIsRss(it.id) }
+                            ?.let { thread -> pageMessages.lastOrNull { !it.outgoing && it.fromAddr.isNotBlank() }?.fromAddr ?: thread.senderAddr }
+                            ?.let(::normalizeSenderAddr)
+                            ?.takeIf { it.isNotEmpty() }
                     ThreadScreen(
                         active = active,
                         modifier = Modifier.graphicsLayer { translationX = threadSwipe.offsetPx + slot * size.width },
@@ -114,6 +123,8 @@ internal fun OpenThreadPager(
                             pageThread
                                 ?.takeIf { active && spamFolderForThread(it) != null }
                                 ?.let { thread -> { markThreadAsSpam(thread, onMoved = popAppBack) } },
+                        senderNotifies = sender?.let { address -> silencedSenders?.let { address !in it } },
+                        onSenderNotifiesChange = { notifies -> sender?.let { scope.launch { setSenderNotifies(it, notifies) } } },
                         isRssArticle = pageThread?.let { threadIdIsRss(it.id) && it.rssItemKeys().isNotEmpty() } == true,
                         // A feed's own page, not one of its entries opened on its own.
                         onRenameFeed =

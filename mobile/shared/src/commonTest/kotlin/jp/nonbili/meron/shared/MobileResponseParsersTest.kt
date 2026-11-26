@@ -966,6 +966,20 @@ class MobileResponseParsersTest {
     }
 
     @Test
+    fun aSenderSilenceRuleRoundTripsAndIsToldFromOtherRules() {
+        val saved = senderSilenceRule("News <NEWS@shop.example>").copy(id = "core-id")
+        val parsed = parseRulesResponse("""{"rules":[${saved.toJson()}]}""").single()
+        assertEquals(saved, parsed)
+        assertTrue(parsed.silencesSender("news@shop.example"))
+        assertFalse(parsed.actsOnMail)
+        // One that also stars, or one turned off, is a rule of the user's own making.
+        val others = listOf(parsed.copy(id = "a", star = true), parsed.copy(id = "b", disabled = true))
+        assertEquals(setOf("news@shop.example"), (others + parsed).silencedSenders())
+        // Rules saved before silencing notify.
+        assertFalse(parseRulesResponse("""{"rules":[{"id":"old","star":true}]}""").single().silence)
+    }
+
+    @Test
     fun parsesRulesAndStatusInsideNativeProtocolEnvelope() {
         val rule = Rule(id = "saved", conditions = listOf(RuleCondition("from", "sender@example.com")), star = true)
         val result = """{"rules":[${rule.toJson()}]}"""

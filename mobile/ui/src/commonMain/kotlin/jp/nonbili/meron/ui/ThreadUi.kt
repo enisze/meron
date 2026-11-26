@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.Search
@@ -130,6 +132,9 @@ internal fun ThreadScreen(
     onBack: () -> Unit,
     onArchive: () -> Unit,
     onMarkAsSpam: (() -> Unit)? = null,
+    /** Whether new mail from the conversation's sender notifies; null where there is no sender to ask about. */
+    senderNotifies: Boolean? = null,
+    onSenderNotifiesChange: (Boolean) -> Unit = {},
     /** Names the feed in the list; null where the thread is not a feed. */
     onRenameFeed: ((String) -> Unit)? = null,
     /** A feed's article opened on its own (a starred one), not the feed's page. */
@@ -1037,6 +1042,21 @@ internal fun ThreadScreen(
                                         }
                                         if (inMenu(ConversationToolbarAction.Spam)) {
                                             MarkAsSpamMenuItem { menuAction(ConversationToolbarAction.Spam) }
+                                        }
+                                        senderNotifies?.let { notifies ->
+                                            DropdownMenuItem(
+                                                text = { Text(tr(if (notifies) "chat.actions.silenceSender" else "chat.actions.notifySender")) },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        if (notifies) Icons.Filled.NotificationsOff else Icons.Filled.Notifications,
+                                                        contentDescription = null,
+                                                    )
+                                                },
+                                                onClick = {
+                                                    overflowOpen = false
+                                                    onSenderNotifiesChange(!notifies)
+                                                },
+                                            )
                                         }
                                         if (isRss && onRenameFeed != null && thread != null) {
                                             DropdownMenuItem(
